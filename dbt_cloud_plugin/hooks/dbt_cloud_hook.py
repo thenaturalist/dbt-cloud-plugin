@@ -1,5 +1,7 @@
+import os
 from airflow.hooks.base_hook import BaseHook
 from airflow.exceptions import AirflowException
+from google.cloud import secretmanager
 
 from dbt_cloud_plugin.dbt_cloud.dbt_cloud import DbtCloud
 
@@ -31,24 +33,23 @@ class DbtCloudHook(BaseHook):
     Interact with dbt Cloud.
     """
 
-    def __init__(self, dbt_cloud_conn_id):
-        self.dbt_cloud_conn_id = dbt_cloud_conn_id
+    def __init__(self):
+        self.client = secretmanager.SecretManagerServiceClient()
 
     def get_conn(self):
-        conn = self.get_connection(self.dbt_cloud_conn_id)
-        if 'dbt_cloud_api_token' in conn.extra_dejson:
-            dbt_cloud_api_token = conn.extra_dejson['dbt_cloud_api_token']
-        else:
-            raise AirflowException(
-                'No dbt Cloud API Token was supplied in dbt Cloud connection.'
-            )
+        """
+        Return the DBT Cloud API object
+        """
+        project_id = os.environ["GCP_PROJECT"]
 
-        if 'dbt_cloud_account_id' in conn.extra_dejson:
-            dbt_cloud_account_id = conn.extra_dejson['dbt_cloud_account_id']
-        else:
-            raise AirflowException(
-                'No dbt Cloud Account ID was supplied in dbt Cloud connection.'
-            )
+        try:
+            dbt_cloud_account = f'projects/{project_id}/secrets/dbt_cloud_account_id/versions/latest'
+            dbt_cloud_account_id = self.client.access_secret_version(name=dbt_cloud_account).payload.data.decode('UTF-8')
+
+            dbt_cloud_api_token = f'projects/{project_id}/secrets/dbt_cloud_api_token/versions/latest'
+            dbt_cloud_api_token = self.client.access_secret_version(name=dbt_cloud_api_token).payload.data.decode('UTF-8')
+        except Exception as e:
+            raise AirflowException(f'Error occurred while accessing dbt_cloud connection details: {e}')
 
         return DbtCloud(dbt_cloud_account_id, dbt_cloud_api_token)
 
